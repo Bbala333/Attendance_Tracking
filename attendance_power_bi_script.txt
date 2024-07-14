@@ -1,0 +1,69 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+
+# Read the data
+df = pd.read_excel("C:\\Users\\lohit\\Desktop\\AT.xlsx")
+
+# Melt the dataframe to convert date columns to rows
+id_vars = ['SNO', 'EMPCODE', 'EMPLOYEENAME', 'Department', 'Type of Employment', 'AGENCY', 'SBU']
+df_melted = df.melt(id_vars=id_vars, var_name='Date', value_name='Attendance_Status')
+
+# Convert Date to datetime
+df_melted['Date'] = pd.to_datetime(df_melted['Date'])
+df['Department'] = df['Department'].fillna('Unknown')
+
+# Sort the dataframe
+df_melted = df_melted.sort_values(['EMPCODE', 'Date'])
+
+# Simplify attendance status mapping
+status_map = {
+    'PP': 'Present' 
+}
+df_melted['Attendance_Status'] = df_melted['Attendance_Status'].map(status_map).fillna('Absent')
+
+# Find the first 'Present' date for each employee
+start_dates = df_melted[df_melted['Attendance_Status'] == 'Present'].groupby('EMPCODE')['Date'].min().reset_index()
+start_dates.columns = ['EMPCODE', 'Start_Date']
+
+# Merge the start date information back to the main dataframe
+df_melted = pd.merge(df_melted, start_dates, on='EMPCODE', how='left')
+
+# Filter out rows before the start date (first 'Present' date)
+df_melted = df_melted[df_melted['Date'] >= df_melted['Start_Date']]
+
+# Create functions to calculate running totals
+def is_workday(status):
+    return 1  # Every day is considered a workday
+
+def is_attended(status):
+    return int(status == 'Present')
+
+# Apply the functions
+df_melted['Is_Workday'] = df_melted['Attendance_Status'].apply(is_workday)
+df_melted['Is_Attended'] = df_melted['Attendance_Status'].apply(is_attended)
+
+# Calculate cumulative sums starting from each employee's start date
+df_melted['Total_Workdays'] = df_melted.groupby('EMPCODE').cumcount() + 1
+df_melted['Total_Attended'] = df_melted.groupby('EMPCODE')['Is_Attended'].cumsum()
+
+# Create additional columns
+df_melted['Day_of_Week'] = df_melted['Date'].dt.day_name()
+df_melted['Month'] = df_melted['Date'].dt.month
+df_melted['Year'] = df_melted['Date'].dt.year
+df_melted['Is_Holiday'] = 'No'  # Since we're not considering holidays separately anymore
+
+# Add month in character format
+df_melted['Month_Name'] = df_melted['Date'].dt.month_name()
+
+# Calculate Attendance Percentage
+df_melted['Attendance_Percentage'] = (df_melted['Total_Attended'] / df_melted['Total_Workdays']) * 100
+df_melted['Attendance_Percentage'] = df_melted['Attendance_Percentage'].fillna(0).round(2)
+
+# Reorder columns
+columns_order = ['Date', 'EMPCODE', 'EMPLOYEENAME', 'Attendance_Status', 'Day_of_Week', 'Month', 'Month_Name', 'Year', 
+                 'Is_Holiday', 'Total_Workdays', 'Total_Attended', 'Attendance_Percentage', 
+                 'Department', 'Type of Employment', 'AGENCY', 'SBU']
+df_final = df_melted[columns_order]
+df_final['Total_per'] = 100.00
+
